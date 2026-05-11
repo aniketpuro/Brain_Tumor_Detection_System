@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Brain Tumor Detection System</title>
+</head>
+<body>
+    <div class="main-wrapper">
+        <header>
+            <h1>Brain Tumor Detection System</h1>
+            <p>Advanced MRI Analysis for Healthcare Insights</p>
+        </header>
+
+        <main class="container">
+            <div class="upload-section">
+                <label for="input_file" class="custom-file-upload">
+                    <span class="upload-icon">📁</span> Select MRI Image
+                    <input type="file" name="image" id="input_file" accept="image/*" required>
+                </label>
+                <p id="file-name" class="file-name"></p>
+            </div>
+
+            <div class="preview-section">
+                <div class="image-preview">
+                    <h4 id="input_image_heading">Scan Preview</h4>
+                    <img id="input_image" src="" alt="No image selected">
+                </div>
+            </div>
+
+            <div class="action-section">
+                <button id="predict_btn">Analyze Scan</button>
+                <div id="loader" class="loader" style="display: none;"></div>
+            </div>
+
+            <div id="result-section" class="result-section" style="display: none;">
+                <h2 id="output_heading">Analysis Result: <span id="output_result"></span></h2>
+                <div class="confidence-bar">
+                    <div id="confidence-fill" class="confidence-fill"></div>
+                </div>
+                
+                <div class="advice-card">
+                    <h3 id="suggestion_heading">Medical Guidance</h3>
+                    <p id="output_info"></p>
+                </div>
+
+                <div class="action-section" style="margin-top: 20px;">
+                    <button id="email_btn" style="background-color: #f43f5e;">✉️ Alert Doctor (aniketpurohit851@gmail.com)</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 Brain Tumor Detection System | Developed by [Your Name]</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
