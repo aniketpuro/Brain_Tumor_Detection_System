@@ -2,27 +2,12 @@
 - name: Fast Deploy Brain Tumor App to AWS
   hosts: all
   become: yes
-  gather_facts: false # Speeds up deployment
+  gather_facts: false
 
   tasks:
-    - name: Wait for SSH to come up
-      wait_for_connection:
-        delay: 5
-        timeout: 300
-
-    - name: Install Docker and required packages (Fast)
-      apt:
-        name: 
-          - docker.io
-          - rsync
-        state: present
-        update_cache: yes
-
-    - name: Ensure Docker is running
-      systemd:
-        name: docker
-        state: started
-        enabled: yes
+    - name: Wait for Cloud-Init (User Data) to finish
+      shell: cloud-init status --wait
+      timeout: 120
 
     - name: Create app directory
       file:
@@ -36,12 +21,12 @@
         dest: /opt/brain-tumor-app/
         mode: '0755'
 
-    - name: Build Docker Image (Uses cache if unchanged)
+    - name: Build Docker Image
       command: docker build -t brain-tumor-detector .
       args:
         chdir: /opt/brain-tumor-app
 
-    - name: Stop existing container if running
+    - name: Stop existing container
       command: docker rm -f brain-tumor-container
       ignore_errors: yes
 
@@ -50,6 +35,6 @@
         docker run -d 
         -p 5000:5000 
         --name brain-tumor-container 
-        -e SMTP_EMAIL="{{ lookup('env', 'SMTP_EMAIL') }}" 
-        -e SMTP_PASSWORD="{{ lookup('env', 'SMTP_PASSWORD') }}" 
+        -e SMTP_EMAIL="{{ lookup('env', 'SMTP_EMAIL') | default('', true) }}" 
+        -e SMTP_PASSWORD="{{ lookup('env', 'SMTP_PASSWORD') | default('', true) }}" 
         brain-tumor-detector

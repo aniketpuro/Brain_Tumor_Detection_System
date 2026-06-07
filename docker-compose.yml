@@ -1,0 +1,38 @@
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: neuroscan
+      POSTGRES_USER: neuroscan
+      POSTGRES_PASSWORD: neuroscan_secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuroscan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Flask API + React Frontend ───────────────────────────────────────────
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: "5001"
+      DATABASE_URL: "postgresql://neuroscan:neuroscan_secret@db:5432/neuroscan"
+      SECRET_KEY: "change-me-in-production"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Mount the model file so you don't have to bake it into the image
+      - ./src/models:/app/src/models:ro
+
+volumes:
+  pgdata:

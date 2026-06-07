@@ -1,0 +1,32 @@
+.git
+.gitignore
+.env
+*.md
+*.ipynb
+*.pdf
+
+# Build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+venv/
+.venv/
+node_modules/
+
+# Infrastructure / deploy scripts
+terraform/
+ansible/
+deploy.sh
+deploy.ps1
+Dockerfile
+docker-compose.yml
+
+# Dataset (large files not needed in image)
+dataset/
+
+# Frontend build output (rebuilt in Docker)
+frontend/dist/
+frontend/node_modules/

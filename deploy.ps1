@@ -26,12 +26,8 @@ if (!(Test-Path "aws_keys.tfvars")) {
     exit 1
 }
 
-# Ensure env vars for Email are set for Ansible to pass to Docker
-if (-not $env:SMTP_EMAIL -or -not $env:SMTP_PASSWORD) {
-    Write-Host "WARNING: SMTP_EMAIL or SMTP_PASSWORD environment variables are not set." -ForegroundColor Yellow
-    Write-Host "The Email Alert feature will not work until these are set." -ForegroundColor Yellow
-    Start-Sleep -Seconds 2
-}
+# Infrastructure provisioning logic continues...
+# (SMTP checks removed as per user request)
 
 # 1. Terraform Phase
 Write-Host "[1/3] Provisioning AWS Infrastructure with Terraform..." -ForegroundColor Magenta

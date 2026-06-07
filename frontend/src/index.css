@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/* ── Custom Theme ─────────────────────────────────────────────────── */
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --color-brand-950: #1e1b4b;
+
+  --animate-scan-line: scanLine 2s ease-in-out infinite;
+  --animate-fade-in: fadeIn 0.5s ease-out;
+  --animate-slide-up: slideUp 0.4s ease-out;
+  --animate-pulse-ring: pulseRing 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+
+  @keyframes scanLine {
+    0%, 100% { transform: translateY(-100%); }
+    50% { transform: translateY(100%); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulseRing {
+    0% { transform: scale(0.33); opacity: 1; }
+    80%, 100% { transform: scale(1); opacity: 0; }
+  }
+}
+
+/* ── Base ─────────────────────────────────────────────────────────── */
+body {
+  @apply bg-slate-50 text-slate-900 font-sans antialiased;
+}
+.dark body {
+  @apply bg-slate-950 text-slate-100;
+}
+
+/* ── Component classes ────────────────────────────────────────────── */
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-slate-200;
+}
+.dark .card {
+  @apply bg-slate-800 border-slate-700;
+}
+
+.btn-primary {
+  @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-white cursor-pointer
+         bg-gradient-to-r from-brand-600 to-brand-500
+         shadow-md transition-all duration-200;
+}
+.btn-primary:hover {
+  @apply from-brand-700 to-brand-600 shadow-lg;
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold cursor-pointer
+         text-slate-700 bg-white border border-slate-300
+         shadow-sm transition-all duration-200;
+}
+.dark .btn-secondary {
+  @apply text-slate-200 bg-slate-700 border-slate-600;
+}
+.btn-secondary:hover {
+  @apply bg-slate-50;
+}
+.dark .btn-secondary:hover {
+  @apply bg-slate-600;
+}
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.btn-danger {
+  @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-white cursor-pointer
+         bg-gradient-to-r from-red-600 to-red-500
+         shadow-md transition-all duration-200;
+}
+.btn-danger:active {
+  transform: scale(0.98);
+}
+
+.input-field {
+  @apply w-full rounded-xl border border-slate-300
+         bg-white px-4 py-2.5 text-slate-900
+         placeholder:text-slate-400
+         focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500
+         transition-all duration-200;
+}
+.dark .input-field {
+  @apply border-slate-600 bg-slate-700 text-slate-100;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-slate-300) transparent;
+}
+.dark .scrollbar-thin {
+  scrollbar-color: var(--color-slate-600) transparent;
+}
+
+/* ── Scan overlay animation ───────────────────────────────────────── */
+.scan-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.scan-overlay::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-brand-400),
+    var(--color-cyan-400),
+    var(--color-brand-400),
+    transparent
+  );
+  box-shadow: 0 0 20px 4px var(--color-brand-400);
+  animation: var(--animate-scan-line);
+}
