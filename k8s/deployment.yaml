@@ -24,7 +24,7 @@ spec:
         fsGroup: 2000
       containers:
       - name: neuroscan
-        image: aniket/neuroscan:latest
+        image: aniketpuro/neuroscan:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 5001
