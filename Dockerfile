@@ -26,6 +26,15 @@ COPY src/ ./src/
 # Copy built frontend from stage 1
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 
+# Create a non-root user and group
+RUN groupadd -r appgroup -g 1000 && useradd -u 1000 -r -g appgroup -m -d /app -s /sbin/nologin -c "App User" appuser
+
+# Create instance directory for SQLite and set permissions
+RUN mkdir -p /app/instance && chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+USER appuser
+
 EXPOSE 5001
 
 ENV PYTHONUNBUFFERED=1
