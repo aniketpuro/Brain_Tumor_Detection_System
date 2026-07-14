@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neuroscan-deployment
+  labels:
+    app: neuroscan
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neuroscan
+  template:
+    metadata:
+      labels:
+        app: neuroscan
+    spec:
+      containers:
+      - name: neuroscan
+        image: aniket/neuroscan:latest # Aap is image name ko Docker Hub username se replace karenge
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5001
+        env:
+        - name: PORT
+          value: "5001"
+        - name: SECRET_KEY
+          value: "production-secret-key-change-me"
