@@ -13,8 +13,7 @@ spec:
     metadata:
       labels:
         app: neuroscan
-      annotations:
-        container.apparmor.security.beta.kubernetes.io/neuroscan: localhost/k8s-neuroscan
+
     spec:
       serviceAccountName: neuroscan-sa
       securityContext:
@@ -22,6 +21,8 @@ spec:
         runAsUser: 1000
         runAsGroup: 3000
         fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: neuroscan
         image: aniketpuro/neuroscan:latest
