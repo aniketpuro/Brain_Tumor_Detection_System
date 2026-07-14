@@ -13,15 +13,41 @@ spec:
     metadata:
       labels:
         app: neuroscan
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/neuroscan: localhost/k8s-neuroscan
     spec:
+      serviceAccountName: neuroscan-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
       containers:
       - name: neuroscan
-        image: aniket/neuroscan:latest # Aap is image name ko Docker Hub username se replace karenge
-        imagePullPolicy: IfNotPresent
+        image: aniket/neuroscan:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 5001
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
         env:
         - name: PORT
           value: "5001"
         - name: SECRET_KEY
           value: "production-secret-key-change-me"
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: db-volume
+          mountPath: /app/instance
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: db-volume
+        hostPath:
+          path: /opt/neuroscan/instance
+          type: DirectoryOrCreate

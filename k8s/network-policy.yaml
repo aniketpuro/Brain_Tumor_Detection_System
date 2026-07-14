@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: neuroscan-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: neuroscan
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 5001
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443 # Allow HTTPS out for Mistral API
+    - protocol: TCP
+      port: 80 # Allow HTTP out
+    - protocol: UDP
+      port: 53 # Allow DNS
