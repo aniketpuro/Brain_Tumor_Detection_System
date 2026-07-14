@@ -137,3 +137,135 @@ export async function generateAIReport(patientId) {
   }
   return data;
 }
+
+// ── Lifestyle Tracker ────────────────────────────────────────────────────
+
+export async function generateGoals(patientId, force = false) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/goals/generate`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify({ force }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to generate goals");
+  return data.goals;
+}
+
+export async function fetchGoals(patientId) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/goals`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch goals");
+  return data.goals;
+}
+
+export async function updateGoal(patientId, goalId, updates) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/goals/${goalId}`, {
+    method: "PUT",
+    ...JSON_OPTS,
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to update goal");
+  return data.goal;
+}
+
+export async function submitDailyLog(patientId, logData) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/daily-log`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify(logData),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to save daily log");
+  return data;
+}
+
+export async function fetchDailyLogs(patientId, days = 30) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/daily-logs?days=${days}`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch logs");
+  return data.logs;
+}
+
+export async function fetchTrackerSummary(patientId, days = 30) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/tracker-summary?days=${days}`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch summary");
+  return data;
+}
+
+// ── Patient Comparison ───────────────────────────────────────────────────
+
+export async function comparePatients(patient1Id, patient2Id) {
+  const res = await fetch(`${API_BASE}/patients/compare`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify({ patient1_id: patient1Id, patient2_id: patient2Id }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to compare patients");
+  return data;
+}
+
+// ── Patient Portal ───────────────────────────────────────────────────────
+
+export async function patientLogin(email, password) {
+  const res = await fetch(`${API_BASE}/auth/patient/login`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Login failed");
+  return data.user;
+}
+
+export async function enablePatientPortal(patientId, password) {
+  const res = await fetch(`${API_BASE}/patients/${patientId}/portal/enable`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to enable portal");
+  return data;
+}
+
+export async function portalFetchReports() {
+  const res = await fetch(`${API_BASE}/portal/reports`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch reports");
+  return data;
+}
+
+export async function portalFetchGoals() {
+  const res = await fetch(`${API_BASE}/portal/goals`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch goals");
+  return data.goals;
+}
+
+export async function portalSubmitDailyLog(logData) {
+  const res = await fetch(`${API_BASE}/portal/daily-log`, {
+    method: "POST",
+    ...JSON_OPTS,
+    body: JSON.stringify(logData),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to save log");
+  return data.log;
+}
+
+export async function portalFetchDailyLogs(days = 30) {
+  const res = await fetch(`${API_BASE}/portal/daily-logs?days=${days}`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch logs");
+  return data.logs;
+}
+
+export async function portalFetchSummary(days = 30) {
+  const res = await fetch(`${API_BASE}/portal/tracker-summary?days=${days}`, OPTS);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to fetch summary");
+  return data;
+}

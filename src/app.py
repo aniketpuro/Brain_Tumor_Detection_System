@@ -26,11 +26,23 @@ import tf_keras
 from tf_keras.layers import BatchNormalization, Flatten
 
 try:
-    from src.models_db import db, User, Patient, ScanResult
+    from src.models_db import db, User, Patient, ScanResult, LifestyleGoal, DailyLog
     from src.gradcam import generate_heatmap
+    from src.ai_chains import (
+        generate_goals_with_langchain,
+        compare_patients_with_langchain,
+        generate_tracker_feedback,
+        generate_report_with_langgraph,
+    )
 except ImportError:
-    from models_db import db, User, Patient, ScanResult
+    from models_db import db, User, Patient, ScanResult, LifestyleGoal, DailyLog
     from gradcam import generate_heatmap
+    from ai_chains import (
+        generate_goals_with_langchain,
+        compare_patients_with_langchain,
+        generate_tracker_feedback,
+        generate_report_with_langgraph,
+    )
 
 
 # ── Keras 2 compatibility patches ─────────────────────────────────────────
@@ -90,6 +102,10 @@ login_manager.init_app(app)
 
 @login_manager.user_loader
 def load_user(user_id):
+    user_id = str(user_id)
+    if user_id.startswith("p_"):
+        pid = int(user_id[2:])
+        return Patient.query.filter_by(id=pid, portal_enabled=True).first()
     return db.session.get(User, int(user_id))
 
 
@@ -216,8 +232,56 @@ def logout():
 @app.route("/api/auth/me")
 def me():
     if current_user.is_authenticated:
+        if current_user.is_patient:
+            return jsonify({"user": current_user.to_portal_dict()})
         return jsonify({"user": current_user.to_dict()})
     return jsonify({"user": None}), 401
+
+
+# ── Patient Portal Auth ───────────────────────────────────────────────────
+
+@app.route("/api/auth/patient/login", methods=["POST", "OPTIONS"])
+def patient_login():
+    if request.method == "OPTIONS":
+        return "", 204
+    data = request.json or {}
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    patient = Patient.query.filter_by(contact_email=email, portal_enabled=True).first()
+    if not patient or not patient.portal_password_hash:
+        return jsonify({"error": "Invalid email or password."}), 401
+    if not bcrypt.check_password_hash(patient.portal_password_hash, password):
+        return jsonify({"error": "Invalid email or password."}), 401
+
+    login_user(patient, remember=True)
+    return jsonify({"user": patient.to_portal_dict()})
+
+
+@app.route("/api/patients/<int:pid>/portal/enable", methods=["POST", "OPTIONS"])
+@login_required
+def enable_patient_portal(pid):
+    """Doctor enables portal access for a patient with a password."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+    if not patient.contact_email:
+        return jsonify({"error": "Patient must have an email address to enable portal."}), 400
+
+    data = request.json or {}
+    password = data.get("password", "")
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters."}), 400
+
+    patient.portal_password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+    patient.portal_enabled = True
+    db.session.commit()
+    return jsonify({"ok": True, "message": f"Portal enabled for {patient.name}"})
 
 
 # ── Patient Routes (doctor-isolated) ──────────────────────────────────────
@@ -253,6 +317,13 @@ def create_patient():
         contact_phone=data.get("contact_phone", "").strip() or None,
         contact_email=data.get("contact_email", "").strip() or None,
     )
+    
+    password = data.get("password", "")
+    if password and patient.contact_email:
+        if len(password) >= 6:
+            patient.portal_password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+            patient.portal_enabled = True
+
     db.session.add(patient)
     db.session.commit()
     return jsonify({"patient": patient.to_dict()}), 201
@@ -1224,11 +1295,7 @@ def generate_ai_report(pid):
 
     avg_confidence = round(sum(s.confidence for s in scans) / len(scans), 1)
 
-    # Simulate AI processing time (2–4 seconds) to make it feel like a real AI call
-    import random as _rnd
-    time.sleep(_rnd.uniform(2.0, 4.0))
-
-    # ── Try Mistral AI for personalised narrative; always fall back to static ─
+    # ── Try LangGraph multi-agent report generation ───────────────────────
     if MISTRAL_API_KEY:
         scan_data = [
             {
@@ -1239,20 +1306,43 @@ def generate_ai_report(pid):
             }
             for s in scans
         ]
-        prompt = (
-            f"You are a senior neuro-oncologist. Patient: {patient.name}, "
-            f"age {patient.age or 'unknown'}, gender {patient.gender or 'unknown'}. "
-            f"Medical history: {patient.medical_history or 'none'}. "
-            f"MRI results ({len(scans)} scans): {json_module.dumps(scan_data)}. "
-            f"Primary diagnosis: {dominant_diagnosis}. "
-            "Return ONLY valid JSON with keys: executive_summary, clinical_interpretation, prognosis. "
-            "Each value is a 2-3 sentence string. No other keys, no markdown."
+
+        langgraph_report = generate_report_with_langgraph(
+            {
+                "name": patient.name,
+                "age": patient.age,
+                "gender": patient.gender,
+                "diagnosis": dominant_diagnosis,
+                "medical_history": patient.medical_history or "None",
+                "avg_confidence": avg_confidence,
+            },
+            scan_data,
         )
+
+        if langgraph_report:
+            # Merge LangGraph output into the static report structure
+            report = _build_static_report(patient, scans, dominant_diagnosis, avg_confidence)
+            for k, v in langgraph_report.items():
+                if v:
+                    report[k] = v
+            print(f"[LangGraph] Multi-agent report generated for patient {pid}")
+            return jsonify({"ai_available": True, "data": report})
+
+        # Fallback: direct Mistral call via LangChain
         try:
             from openai import OpenAI
             client = OpenAI(
                 api_key=MISTRAL_API_KEY,
                 base_url="https://api.mistral.ai/v1",
+            )
+            prompt = (
+                f"You are a senior neuro-oncologist. Patient: {patient.name}, "
+                f"age {patient.age or 'unknown'}, gender {patient.gender or 'unknown'}. "
+                f"Medical history: {patient.medical_history or 'none'}. "
+                f"MRI results ({len(scans)} scans): {json_module.dumps(scan_data)}. "
+                f"Primary diagnosis: {dominant_diagnosis}. "
+                "Return ONLY valid JSON with keys: executive_summary, clinical_interpretation, prognosis. "
+                "Each value is a 2-3 sentence string. No other keys, no markdown."
             )
             resp = client.chat.completions.create(
                 model="mistral-small-latest",
@@ -1261,17 +1351,676 @@ def generate_ai_report(pid):
                 temperature=0.3,
             )
             ai_extra = json_module.loads(resp.choices[0].message.content.strip())
-            # Merge AI narrative into the rich static report
             report = _build_static_report(patient, scans, dominant_diagnosis, avg_confidence)
             report.update({k: v for k, v in ai_extra.items() if v and isinstance(v, str)})
-            print(f"Mistral enrichment OK for patient {pid}")
+            print(f"[Mistral fallback] Report enrichment OK for patient {pid}")
             return jsonify({"ai_available": True, "data": report})
         except Exception as e:
-            print(f"Mistral API error (falling back to static): {e}")
+            print(f"[AI] Report generation error (falling back to static): {e}")
 
     # ── Static report — always works, no API needed ────────────────────────
     report = _build_static_report(patient, scans, dominant_diagnosis, avg_confidence)
     return jsonify({"ai_available": True, "data": report})
+
+
+# ── Lifestyle Goal Generation Helper ─────────────────────────────────────────
+
+def _generate_goals_from_diagnosis(patient_id, doctor_id, diagnosis):
+    """Create LifestyleGoal entries from the diet/lifestyle templates."""
+    goals = []
+    diet = _DIET.get(diagnosis, _DIET["No Tumor"])
+    lifestyle = _LIFESTYLE.get(diagnosis, _LIFESTYLE["No Tumor"])
+
+    goals.append(LifestyleGoal(
+        patient_id=patient_id, doctor_id=doctor_id,
+        category="hydration", title="Daily Water Intake",
+        description=diet.get("hydration", "Drink 8 glasses of water daily."),
+        target_value=8.0, unit="glasses", frequency="daily",
+    ))
+
+    goals.append(LifestyleGoal(
+        patient_id=patient_id, doctor_id=doctor_id,
+        category="sleep", title="Quality Sleep",
+        description=lifestyle["sleep"][0] if lifestyle.get("sleep") else "Aim for 7-8 hours of sleep",
+        target_value=8.0, unit="hours", frequency="daily",
+    ))
+
+    for ex in lifestyle.get("exercise", [])[:2]:
+        goals.append(LifestyleGoal(
+            patient_id=patient_id, doctor_id=doctor_id,
+            category="exercise", title=ex["activity"],
+            description=f"{ex['frequency']}. {ex.get('note', '')}",
+            target_value=30.0, unit="minutes", frequency="daily",
+        ))
+
+    goals.append(LifestyleGoal(
+        patient_id=patient_id, doctor_id=doctor_id,
+        category="diet", title="Diet Adherence",
+        description=diet.get("overview", "Follow recommended dietary guidelines."),
+        target_value=4.0, unit="score (1-5)", frequency="daily",
+    ))
+
+    if lifestyle.get("stress_management"):
+        goals.append(LifestyleGoal(
+            patient_id=patient_id, doctor_id=doctor_id,
+            category="stress", title="Stress Management Practice",
+            description=lifestyle["stress_management"][0],
+            target_value=1.0, unit="session", frequency="daily",
+        ))
+
+    if lifestyle.get("self_monitoring"):
+        goals.append(LifestyleGoal(
+            patient_id=patient_id, doctor_id=doctor_id,
+            category="monitoring", title="Daily Symptom Tracking",
+            description=lifestyle["self_monitoring"][0],
+            target_value=1.0, unit="entry", frequency="daily",
+        ))
+
+    return goals
+
+
+# ── Lifestyle Tracker Routes ─────────────────────────────────────────────────
+
+@app.route("/api/patients/<int:pid>/goals/generate", methods=["POST", "OPTIONS"])
+@login_required
+def generate_goals(pid):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+
+    data = request.json or {}
+    force = data.get("force", False)
+
+    existing = LifestyleGoal.query.filter_by(patient_id=pid, doctor_id=current_user.id).all()
+    if existing and not force:
+        return jsonify({"goals": [g.to_dict() for g in existing]})
+
+    if force and existing:
+        for g in existing:
+            db.session.delete(g)
+        db.session.commit()
+
+    latest_scan = (
+        ScanResult.query
+        .filter_by(patient_id=pid, doctor_id=current_user.id)
+        .order_by(ScanResult.created_at.desc())
+        .first()
+    )
+    diagnosis = latest_scan.prediction if latest_scan else "No Tumor"
+    risk = latest_scan.risk_level if latest_scan else "Low"
+
+    # Try LangChain for personalized goals
+    ai_goals = generate_goals_with_langchain({
+        "name": patient.name,
+        "age": patient.age,
+        "gender": patient.gender,
+        "diagnosis": diagnosis,
+        "medical_history": patient.medical_history or "None",
+        "risk_level": risk,
+    })
+
+    if ai_goals:
+        new_goals = []
+        for g in ai_goals:
+            goal = LifestyleGoal(
+                patient_id=pid, doctor_id=current_user.id,
+                category=g.get("category", "monitoring"),
+                title=g.get("title", "Goal")[:255],
+                description=g.get("description", ""),
+                target_value=g.get("target_value"),
+                unit=g.get("unit", ""),
+                frequency=g.get("frequency", "daily"),
+            )
+            db.session.add(goal)
+            new_goals.append(goal)
+        db.session.commit()
+        print(f"[LangChain] Generated {len(new_goals)} goals for patient {pid}")
+    else:
+        # Fallback to template-based goals
+        new_goals = _generate_goals_from_diagnosis(pid, current_user.id, diagnosis)
+        for g in new_goals:
+            db.session.add(g)
+        db.session.commit()
+        print(f"[Fallback] Generated {len(new_goals)} template goals for patient {pid}")
+
+    return jsonify({"goals": [g.to_dict() for g in new_goals]}), 201
+
+
+@app.route("/api/patients/<int:pid>/goals", methods=["GET"])
+@login_required
+def list_goals(pid):
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+
+    goals = (
+        LifestyleGoal.query
+        .filter_by(patient_id=pid, doctor_id=current_user.id)
+        .order_by(LifestyleGoal.is_active.desc(), LifestyleGoal.created_at.desc())
+        .all()
+    )
+    return jsonify({"goals": [g.to_dict() for g in goals]})
+
+
+@app.route("/api/patients/<int:pid>/goals/<int:gid>", methods=["PUT", "OPTIONS"])
+@login_required
+def update_goal(pid, gid):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    goal = LifestyleGoal.query.filter_by(
+        id=gid, patient_id=pid, doctor_id=current_user.id
+    ).first()
+    if not goal:
+        return jsonify({"error": "Goal not found"}), 404
+
+    data = request.json or {}
+    if "is_active" in data:
+        goal.is_active = bool(data["is_active"])
+    if "title" in data:
+        goal.title = data["title"].strip()
+    if "target_value" in data:
+        goal.target_value = data["target_value"]
+
+    db.session.commit()
+    return jsonify({"goal": goal.to_dict()})
+
+
+@app.route("/api/patients/<int:pid>/daily-log", methods=["POST", "OPTIONS"])
+@login_required
+def upsert_daily_log(pid):
+    if request.method == "OPTIONS":
+        return "", 204
+
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+
+    data = request.json or {}
+    from datetime import date as date_type
+    log_date_str = data.get("log_date")
+    if log_date_str:
+        log_date = date_type.fromisoformat(log_date_str)
+    else:
+        log_date = date_type.today()
+
+    existing = DailyLog.query.filter_by(
+        patient_id=pid, doctor_id=current_user.id, log_date=log_date
+    ).first()
+
+    if existing:
+        log = existing
+    else:
+        log = DailyLog(patient_id=pid, doctor_id=current_user.id, log_date=log_date)
+        db.session.add(log)
+
+    if "water_intake" in data:
+        log.water_intake = data["water_intake"]
+    if "sleep_hours" in data:
+        log.sleep_hours = data["sleep_hours"]
+    if "exercise_minutes" in data:
+        log.exercise_minutes = data["exercise_minutes"]
+    if "mood" in data:
+        log.mood = data["mood"]
+    if "diet_compliance" in data:
+        log.diet_compliance = data["diet_compliance"]
+    if "symptoms" in data:
+        log.symptoms = data["symptoms"]
+    if "notes" in data:
+        log.notes = data["notes"]
+    if "goals_completed" in data:
+        log.goals_completed = data["goals_completed"]
+
+    db.session.commit()
+
+    # Generate AI feedback via LangChain
+    latest_scan = ScanResult.query.filter_by(
+        patient_id=pid, doctor_id=current_user.id
+    ).order_by(ScanResult.created_at.desc()).first()
+
+    active_goals = LifestyleGoal.query.filter_by(
+        patient_id=pid, doctor_id=current_user.id, is_active=True
+    ).all()
+
+    from datetime import date as dt, timedelta
+    log_dates = {l.log_date for l in DailyLog.query.filter_by(
+        patient_id=pid, doctor_id=current_user.id
+    ).filter(DailyLog.log_date >= dt.today() - timedelta(days=30)).all()}
+    streak = 0
+    for i in range(30):
+        if (dt.today() - timedelta(days=i)) in log_dates:
+            streak += 1
+        else:
+            break
+
+    feedback = generate_tracker_feedback(data, {
+        "name": patient.name,
+        "diagnosis": latest_scan.prediction if latest_scan else "",
+        "goals_summary": ", ".join(g.title for g in active_goals[:5]),
+        "streak": streak,
+    })
+
+    response = {"log": log.to_dict()}
+    if feedback:
+        response["ai_feedback"] = feedback
+
+    return jsonify(response), 200 if existing else 201
+
+
+@app.route("/api/patients/<int:pid>/daily-logs", methods=["GET"])
+@login_required
+def list_daily_logs(pid):
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+
+    days = request.args.get("days", 30, type=int)
+    from datetime import date as date_type, timedelta
+    since = date_type.today() - timedelta(days=days)
+
+    logs = (
+        DailyLog.query
+        .filter_by(patient_id=pid, doctor_id=current_user.id)
+        .filter(DailyLog.log_date >= since)
+        .order_by(DailyLog.log_date.desc())
+        .all()
+    )
+    return jsonify({"logs": [l.to_dict() for l in logs]})
+
+
+@app.route("/api/patients/<int:pid>/tracker-summary", methods=["GET"])
+@login_required
+def tracker_summary(pid):
+    patient = Patient.query.filter_by(id=pid, doctor_id=current_user.id).first()
+    if not patient:
+        return jsonify({"error": "Patient not found"}), 404
+
+    from datetime import date as date_type, timedelta
+
+    days = request.args.get("days", 30, type=int)
+    since = date_type.today() - timedelta(days=days)
+
+    logs = (
+        DailyLog.query
+        .filter_by(patient_id=pid, doctor_id=current_user.id)
+        .filter(DailyLog.log_date >= since)
+        .order_by(DailyLog.log_date.desc())
+        .all()
+    )
+
+    total_goals = LifestyleGoal.query.filter_by(
+        patient_id=pid, doctor_id=current_user.id, is_active=True
+    ).count()
+
+    # Compute streak
+    streak = 0
+    today = date_type.today()
+    log_dates = {l.log_date for l in logs}
+    for i in range(days):
+        d = today - timedelta(days=i)
+        if d in log_dates:
+            streak += 1
+        else:
+            break
+
+    # Averages
+    n = len(logs) or 1
+    avg_sleep = round(sum(l.sleep_hours or 0 for l in logs) / n, 1)
+    avg_water = round(sum(l.water_intake or 0 for l in logs) / n, 1)
+    avg_exercise = round(sum(l.exercise_minutes or 0 for l in logs) / n, 0)
+    avg_mood = round(sum(l.mood or 0 for l in logs) / n, 1)
+    avg_diet = round(sum(l.diet_compliance or 0 for l in logs) / n, 1)
+
+    # Goal adherence
+    if total_goals > 0 and logs:
+        completed_counts = [
+            len(l.goals_completed) if l.goals_completed else 0 for l in logs
+        ]
+        adherence = round(
+            sum(completed_counts) / (total_goals * len(logs)) * 100, 1
+        )
+    else:
+        adherence = 0
+
+    return jsonify({
+        "streak": streak,
+        "totalLogs": len(logs),
+        "totalGoals": total_goals,
+        "avgSleep": avg_sleep,
+        "avgWater": avg_water,
+        "avgExercise": int(avg_exercise),
+        "avgMood": avg_mood,
+        "avgDiet": avg_diet,
+        "adherence": adherence,
+    })
+
+
+# ── Patient Comparison / Analytics ────────────────────────────────────────
+
+@app.route("/api/patients/compare", methods=["POST", "OPTIONS"])
+@login_required
+def compare_patients():
+    """Compare two patients' progress, treatment effectiveness."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    data = request.json or {}
+    pid1 = data.get("patient1_id")
+    pid2 = data.get("patient2_id")
+    if not pid1 or not pid2:
+        return jsonify({"error": "Two patient IDs required"}), 400
+
+    p1 = Patient.query.filter_by(id=pid1, doctor_id=current_user.id).first()
+    p2 = Patient.query.filter_by(id=pid2, doctor_id=current_user.id).first()
+    if not p1 or not p2:
+        return jsonify({"error": "One or both patients not found"}), 404
+
+    from datetime import date as date_type, timedelta
+    since = date_type.today() - timedelta(days=30)
+
+    def get_patient_stats(patient):
+        scans = ScanResult.query.filter_by(
+            patient_id=patient.id, doctor_id=current_user.id
+        ).order_by(ScanResult.created_at.desc()).all()
+
+        logs = DailyLog.query.filter_by(
+            patient_id=patient.id, doctor_id=current_user.id
+        ).filter(DailyLog.log_date >= since).order_by(DailyLog.log_date.desc()).all()
+
+        goals = LifestyleGoal.query.filter_by(
+            patient_id=patient.id, doctor_id=current_user.id, is_active=True
+        ).all()
+
+        n = len(logs) or 1
+        avg_sleep = round(sum(l.sleep_hours or 0 for l in logs) / n, 1)
+        avg_water = round(sum(l.water_intake or 0 for l in logs) / n, 1)
+        avg_exercise = round(sum(l.exercise_minutes or 0 for l in logs) / n, 0)
+        avg_mood = round(sum(l.mood or 0 for l in logs) / n, 1)
+        avg_diet = round(sum(l.diet_compliance or 0 for l in logs) / n, 1)
+
+        total_goals = len(goals)
+        if total_goals > 0 and logs:
+            completed_counts = [
+                len(l.goals_completed) if l.goals_completed else 0 for l in logs
+            ]
+            adherence = round(sum(completed_counts) / (total_goals * len(logs)) * 100, 1)
+        else:
+            adherence = 0
+
+        # Streak
+        streak = 0
+        today = date_type.today()
+        log_dates = {l.log_date for l in logs}
+        for i in range(30):
+            if (today - timedelta(days=i)) in log_dates:
+                streak += 1
+            else:
+                break
+
+        # Diagnosis info
+        tumor_scans = [s for s in scans if s.prediction != "No Tumor"]
+        dominant = "No Tumor"
+        if tumor_scans:
+            preds = [s.prediction for s in tumor_scans]
+            dominant = max(set(preds), key=preds.count)
+
+        # Mood trend (improvement over time)
+        mood_trend = 0
+        if len(logs) >= 4:
+            recent_half = logs[:len(logs)//2]
+            older_half = logs[len(logs)//2:]
+            recent_avg = sum(l.mood or 0 for l in recent_half) / len(recent_half)
+            older_avg = sum(l.mood or 0 for l in older_half) / len(older_half)
+            mood_trend = round(recent_avg - older_avg, 1)
+
+        return {
+            "patient": patient.to_dict(include_scan_count=True),
+            "diagnosis": dominant,
+            "totalScans": len(scans),
+            "totalLogs": len(logs),
+            "streak": streak,
+            "avgSleep": avg_sleep,
+            "avgWater": avg_water,
+            "avgExercise": int(avg_exercise),
+            "avgMood": avg_mood,
+            "avgDiet": avg_diet,
+            "adherence": adherence,
+            "moodTrend": mood_trend,
+            "goals": [g.to_dict() for g in goals],
+            "recentLogs": [l.to_dict() for l in logs[:7]],
+        }
+
+    stats1 = get_patient_stats(p1)
+    stats2 = get_patient_stats(p2)
+
+    # Auto-analysis
+    insights = []
+    if stats1["diagnosis"] == stats2["diagnosis"]:
+        insights.append(f"Both patients share the same diagnosis: {stats1['diagnosis']}")
+
+        if stats1["adherence"] > stats2["adherence"]:
+            insights.append(f"{p1.name} has higher goal adherence ({stats1['adherence']}% vs {stats2['adherence']}%)")
+        elif stats2["adherence"] > stats1["adherence"]:
+            insights.append(f"{p2.name} has higher goal adherence ({stats2['adherence']}% vs {stats1['adherence']}%)")
+
+        if stats1["avgExercise"] > stats2["avgExercise"]:
+            insights.append(f"{p1.name} exercises more ({stats1['avgExercise']} min/day vs {stats2['avgExercise']} min/day)")
+        elif stats2["avgExercise"] > stats1["avgExercise"]:
+            insights.append(f"{p2.name} exercises more ({stats2['avgExercise']} min/day vs {stats1['avgExercise']} min/day)")
+
+        if stats1["moodTrend"] > stats2["moodTrend"]:
+            insights.append(f"{p1.name} shows better mood improvement trend (+{stats1['moodTrend']} vs +{stats2['moodTrend']})")
+        elif stats2["moodTrend"] > stats1["moodTrend"]:
+            insights.append(f"{p2.name} shows better mood improvement trend (+{stats2['moodTrend']} vs +{stats1['moodTrend']})")
+
+        better = p1.name if stats1["adherence"] >= stats2["adherence"] else p2.name
+        insights.append(f"Recommendation: The lifestyle approach of {better} appears more effective for {stats1['diagnosis']}. Consider applying similar prescriptions to other patients with this diagnosis.")
+    else:
+        insights.append(f"Different diagnoses: {p1.name} ({stats1['diagnosis']}) vs {p2.name} ({stats2['diagnosis']})")
+        insights.append("Comparison is most meaningful between patients with the same tumor type.")
+
+    if stats1["streak"] > stats2["streak"]:
+        insights.append(f"{p1.name} has a longer tracking streak ({stats1['streak']} days vs {stats2['streak']} days), indicating better engagement.")
+    elif stats2["streak"] > stats1["streak"]:
+        insights.append(f"{p2.name} has a longer tracking streak ({stats2['streak']} days vs {stats1['streak']} days), indicating better engagement.")
+
+    # Enhance with LangChain AI insights
+    ai_result = compare_patients_with_langchain(stats1, stats2)
+    recommendation = ""
+    effective_practices = []
+    if ai_result:
+        insights = ai_result.get("insights", insights)
+        recommendation = ai_result.get("recommendation", "")
+        effective_practices = ai_result.get("effective_practices", [])
+        print(f"[LangChain] Comparison insights generated for {p1.name} vs {p2.name}")
+
+    return jsonify({
+        "patient1": stats1,
+        "patient2": stats2,
+        "insights": insights,
+        "recommendation": recommendation,
+        "effective_practices": effective_practices,
+    })
+
+
+# ── Patient Portal Routes (patient-facing, read-only reports + tracker) ───
+
+@app.route("/api/portal/me", methods=["GET"])
+@login_required
+def portal_me():
+    if not current_user.is_patient:
+        return jsonify({"error": "Not a patient account"}), 403
+    return jsonify({"user": current_user.to_portal_dict()})
+
+
+@app.route("/api/portal/reports", methods=["GET"])
+@login_required
+def portal_reports():
+    """Patient views their own scan reports (read-only)."""
+    if not current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    scans = (
+        ScanResult.query
+        .filter_by(patient_id=current_user.id)
+        .order_by(ScanResult.created_at.desc())
+        .all()
+    )
+    return jsonify({
+        "patient": current_user.to_dict(include_scan_count=False),
+        "scans": [s.to_dict() for s in scans],
+    })
+
+
+@app.route("/api/portal/goals", methods=["GET"])
+@login_required
+def portal_goals():
+    """Patient views their lifestyle goals."""
+    if not current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    goals = (
+        LifestyleGoal.query
+        .filter_by(patient_id=current_user.id)
+        .order_by(LifestyleGoal.is_active.desc(), LifestyleGoal.created_at.desc())
+        .all()
+    )
+    return jsonify({"goals": [g.to_dict() for g in goals]})
+
+
+@app.route("/api/portal/daily-log", methods=["POST", "OPTIONS"])
+@login_required
+def portal_upsert_log():
+    """Patient submits their own daily log."""
+    if request.method == "OPTIONS":
+        return "", 204
+    if not current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    data = request.json or {}
+    from datetime import date as date_type
+    log_date_str = data.get("log_date")
+    log_date = date_type.fromisoformat(log_date_str) if log_date_str else date_type.today()
+
+    existing = DailyLog.query.filter_by(
+        patient_id=current_user.id, doctor_id=current_user.doctor_id, log_date=log_date
+    ).first()
+
+    if existing:
+        log = existing
+    else:
+        log = DailyLog(
+            patient_id=current_user.id,
+            doctor_id=current_user.doctor_id,
+            log_date=log_date,
+        )
+        db.session.add(log)
+
+    if "water_intake" in data:
+        log.water_intake = data["water_intake"]
+    if "sleep_hours" in data:
+        log.sleep_hours = data["sleep_hours"]
+    if "exercise_minutes" in data:
+        log.exercise_minutes = data["exercise_minutes"]
+    if "mood" in data:
+        log.mood = data["mood"]
+    if "diet_compliance" in data:
+        log.diet_compliance = data["diet_compliance"]
+    if "symptoms" in data:
+        log.symptoms = data["symptoms"]
+    if "notes" in data:
+        log.notes = data["notes"]
+    if "goals_completed" in data:
+        log.goals_completed = data["goals_completed"]
+
+    db.session.commit()
+    return jsonify({"log": log.to_dict()}), 200 if existing else 201
+
+
+@app.route("/api/portal/daily-logs", methods=["GET"])
+@login_required
+def portal_list_logs():
+    """Patient views their own log history."""
+    if not current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    days = request.args.get("days", 30, type=int)
+    from datetime import date as date_type, timedelta
+    since = date_type.today() - timedelta(days=days)
+
+    logs = (
+        DailyLog.query
+        .filter_by(patient_id=current_user.id)
+        .filter(DailyLog.log_date >= since)
+        .order_by(DailyLog.log_date.desc())
+        .all()
+    )
+    return jsonify({"logs": [l.to_dict() for l in logs]})
+
+
+@app.route("/api/portal/tracker-summary", methods=["GET"])
+@login_required
+def portal_tracker_summary():
+    """Patient views their own tracker summary."""
+    if not current_user.is_patient:
+        return jsonify({"error": "Not authorized"}), 403
+
+    from datetime import date as date_type, timedelta
+    days = request.args.get("days", 30, type=int)
+    since = date_type.today() - timedelta(days=days)
+
+    logs = (
+        DailyLog.query
+        .filter_by(patient_id=current_user.id)
+        .filter(DailyLog.log_date >= since)
+        .order_by(DailyLog.log_date.desc())
+        .all()
+    )
+
+    total_goals = LifestyleGoal.query.filter_by(
+        patient_id=current_user.id, is_active=True
+    ).count()
+
+    streak = 0
+    today = date_type.today()
+    log_dates = {l.log_date for l in logs}
+    for i in range(days):
+        if (today - timedelta(days=i)) in log_dates:
+            streak += 1
+        else:
+            break
+
+    n = len(logs) or 1
+    avg_sleep = round(sum(l.sleep_hours or 0 for l in logs) / n, 1)
+    avg_water = round(sum(l.water_intake or 0 for l in logs) / n, 1)
+    avg_exercise = round(sum(l.exercise_minutes or 0 for l in logs) / n, 0)
+    avg_mood = round(sum(l.mood or 0 for l in logs) / n, 1)
+    avg_diet = round(sum(l.diet_compliance or 0 for l in logs) / n, 1)
+
+    if total_goals > 0 and logs:
+        completed_counts = [
+            len(l.goals_completed) if l.goals_completed else 0 for l in logs
+        ]
+        adherence = round(sum(completed_counts) / (total_goals * len(logs)) * 100, 1)
+    else:
+        adherence = 0
+
+    return jsonify({
+        "streak": streak,
+        "totalLogs": len(logs),
+        "totalGoals": total_goals,
+        "avgSleep": avg_sleep,
+        "avgWater": avg_water,
+        "avgExercise": int(avg_exercise),
+        "avgMood": avg_mood,
+        "avgDiet": avg_diet,
+        "adherence": adherence,
+    })
 
 
 # ── Serve React Frontend (production build) ────────────────────────────────

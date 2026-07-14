@@ -54,13 +54,26 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  const patientLogin = async (email, password) => {
+    const res = await fetch(`${API}/patient/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Login failed");
+    setUser(data.user);
+    return data.user;
+  };
+
   const logout = async () => {
     await fetch(`${API}/logout`, { method: "POST", credentials: "include" });
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, patientLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

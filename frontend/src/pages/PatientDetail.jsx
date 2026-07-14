@@ -19,7 +19,9 @@ import {
   Phone,
   Mail,
   Sparkles,
+  Shield,
 } from "lucide-react";
+import { enablePatientPortal } from "../utils/api";
 
 export default function PatientDetail() {
   const { id } = useParams();
@@ -33,6 +35,9 @@ export default function PatientDetail() {
   const [confirmDel, setConfirmDel] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportStatus, setReportStatus] = useState(null);
+  const [portalModal, setPortalModal] = useState(false);
+  const [portalPassword, setPortalPassword] = useState("");
+  const [portalMsg, setPortalMsg] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -133,6 +138,22 @@ export default function PatientDetail() {
     }
   };
 
+  const handleEnablePortal = async () => {
+    if (portalPassword.length < 6) {
+      setPortalMsg("Password must be at least 6 characters.");
+      return;
+    }
+    try {
+      await enablePatientPortal(id, portalPassword);
+      setPortalMsg("Portal enabled! Patient can now login.");
+      setPortalPassword("");
+      setTimeout(() => { setPortalModal(false); setPortalMsg(null); }, 2000);
+      load();
+    } catch (err) {
+      setPortalMsg(err.message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -211,6 +232,9 @@ export default function PatientDetail() {
             )}
           </div>
           <div className="flex gap-2 shrink-0 flex-wrap">
+            <button onClick={() => navigate(`/patients/${id}/tracker`)} className="btn-secondary text-sm">
+              <Activity size={16} /> Lifestyle Tracker
+            </button>
             <button onClick={() => navigate(`/scan?patient=${id}`)} className="btn-primary text-sm">
               <ScanLine size={16} /> New Scan
             </button>
@@ -227,6 +251,20 @@ export default function PatientDetail() {
                   <><Sparkles size={16} /> AI Full Report</>
                 )}
               </button>
+            )}
+            {!patient?.portalEnabled && patient?.contactEmail && (
+              <button
+                onClick={() => setPortalModal(true)}
+                className="btn-secondary text-sm"
+                title="Enable patient portal login"
+              >
+                <Shield size={16} /> Enable Portal
+              </button>
+            )}
+            {patient?.portalEnabled && (
+              <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-lg">
+                <Shield size={12} /> Portal Active
+              </span>
             )}
           </div>
         </div>
@@ -251,6 +289,34 @@ export default function PatientDetail() {
           <p className="text-xs text-slate-500 dark:text-slate-400">Avg Confidence</p>
         </div>
       </div>
+
+      {/* Portal Enable Modal */}
+      {portalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPortalModal(false)}>
+          <div className="card p-6 w-full max-w-sm mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-lg">Enable Patient Portal</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Set a password for <strong>{patient?.name}</strong> to login at the Patient Portal using their email: <strong>{patient?.contactEmail}</strong>
+            </p>
+            {portalMsg && (
+              <p className={`text-sm ${portalMsg.includes("enabled") ? "text-emerald-600" : "text-red-500"}`}>
+                {portalMsg}
+              </p>
+            )}
+            <input
+              type="password"
+              placeholder="Set portal password (min 6 chars)"
+              value={portalPassword}
+              onChange={(e) => setPortalPassword(e.target.value)}
+              className="input-field"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setPortalModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={handleEnablePortal} className="btn-primary flex-1">Enable</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scan history */}
       {scans.length === 0 ? (

@@ -15,12 +15,14 @@ import {
   ChevronRight,
   LogOut,
   Users,
+  GitCompare,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/patients", icon: Users, label: "Patients" },
   { to: "/scan", icon: ScanLine, label: "New Scan" },
+  { to: "/compare", icon: GitCompare, label: "Compare" },
   { to: "/history", icon: Clock, label: "History" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
@@ -29,6 +31,7 @@ const PAGE_TITLES = {
   "/": "Dashboard",
   "/patients": "Patients",
   "/scan": "Scan Analysis",
+  "/compare": "Compare Patients",
   "/history": "Scan History",
   "/settings": "Settings",
 };
@@ -60,7 +63,9 @@ export default function Layout({ children }) {
   const location = useLocation();
 
   const pageTitle = PAGE_TITLES[location.pathname]
-    || (location.pathname.startsWith("/patients/") ? "Patient Details" : "NeuroScan AI");
+    || (location.pathname.endsWith("/tracker") ? "Lifestyle Tracker"
+       : location.pathname.startsWith("/patients/") ? "Patient Details"
+       : "NeuroScan AI");
 
   const breadcrumb = location.pathname
     .split("/")

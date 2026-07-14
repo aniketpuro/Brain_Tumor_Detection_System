@@ -5,6 +5,9 @@ import Dashboard from "./pages/Dashboard";
 import Patients from "./pages/Patients";
 import ScanAnalysis from "./pages/ScanAnalysis";
 import PatientDetail from "./pages/PatientDetail";
+import LifestyleTracker from "./pages/LifestyleTracker";
+import ComparePatients from "./pages/ComparePatients";
+import PatientPortal from "./pages/PatientPortal";
 import History from "./pages/History";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
@@ -24,6 +27,7 @@ function AuthGuard({ children }) {
   }
 
   if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "patient") return <Navigate to="/portal" replace />;
   return children;
 }
 
@@ -32,6 +36,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/patient-login" element={<Navigate to="/login" replace />} />
+      <Route path="/portal" element={<PatientPortal />} />
 
       <Route
         path="/*"
@@ -42,6 +48,8 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/patients" element={<Patients />} />
                 <Route path="/patients/:id" element={<PatientDetail />} />
+                <Route path="/patients/:id/tracker" element={<LifestyleTracker />} />
+                <Route path="/compare" element={<ComparePatients />} />
                 <Route path="/scan" element={<ScanAnalysis />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/settings" element={<Settings />} />

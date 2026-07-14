@@ -48,9 +48,9 @@ export default function Register() {
           <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-cyan-500 flex items-center justify-center shadow-xl shadow-brand-500/30 mb-4">
             <Brain size={32} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold">Create Account</h1>
+          <h1 className="text-2xl font-bold">Doctor Registration</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Register to start using NeuroScan AI
+            Create a doctor account to start using NeuroScan AI
           </p>
         </div>
 

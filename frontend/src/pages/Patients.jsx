@@ -34,6 +34,7 @@ export default function Patients() {
     medical_history: "",
     contact_phone: "",
     contact_email: "",
+    password: "",
   });
 
   const load = useCallback(async () => {
@@ -70,7 +71,7 @@ export default function Patients() {
       });
       setPatients((prev) => [patient, ...prev]);
       setShowForm(false);
-      setForm({ name: "", age: "", gender: "", medical_history: "", contact_phone: "", contact_email: "" });
+      setForm({ name: "", age: "", gender: "", medical_history: "", contact_phone: "", contact_email: "", password: "" });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -168,10 +169,12 @@ export default function Patients() {
             onChange={set("medical_history")}
           />
 
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-3 gap-3">
             <input type="tel" placeholder="Phone (optional)" className="input-field" value={form.contact_phone} onChange={set("contact_phone")} />
             <input type="email" placeholder="Email (optional)" className="input-field" value={form.contact_email} onChange={set("contact_email")} />
+            <input type="password" placeholder="Portal Password (optional)" className="input-field" value={form.password} onChange={set("password")} />
           </div>
+          <p className="text-xs text-slate-500">Entering an email and password will enable portal access for this patient.</p>
 
           <div className="flex gap-2">
             <button type="submit" disabled={formLoading} className="btn-primary disabled:opacity-60">
