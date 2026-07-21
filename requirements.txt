@@ -1,10 +1,10 @@
-flask==3.1.0
+flask==3.1.3
 # tensorflow-cpu is Linux/Windows only; macOS needs the tensorflow package
 tensorflow==2.16.2; sys_platform == "darwin"
 tensorflow-cpu==2.16.2; sys_platform != "darwin"
 numpy>=1.26.4,<2.0
-Pillow==10.2.0
-gunicorn==21.2.0
+Pillow==12.3.0
+gunicorn==22.0.0
 boto3==1.34.0
 tf-keras==2.16.0
 flask-sqlalchemy
