@@ -1,0 +1,41 @@
+# NeuroScan Production — Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: neuroscan
+      POSTGRES_USER: neuroscan
+      POSTGRES_PASSWORD: neuroscan_secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuroscan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Flask API + React Frontend (from DockerHub) ──────────────────────────
+  api:
+    image: aniketpuro/neuroscan:latest
+    restart: unless-stopped
+    ports:
+      - "80:5001"
+    environment:
+      PORT: "5001"
+      DATABASE_URL: "postgresql://neuroscan:neuroscan_secret@db:5432/neuroscan"
+      SECRET_KEY: "${SECRET_KEY:-change-me-to-a-strong-random-string}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY}"
+      TF_CPP_MIN_LOG_LEVEL: "2"
+      # Uncomment if you need email features:
+      # SMTP_EMAIL: "${SMTP_EMAIL}"
+      # SMTP_PASSWORD: "${SMTP_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

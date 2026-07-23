@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: custom-error-pages
+  namespace: default
+  labels:
+    app: custom-error-pages
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: custom-error-pages
+  template:
+    metadata:
+      labels:
+        app: custom-error-pages
+    spec:
+      containers:
+      - name: custom-error-pages
+        # Standard default backend image provided by kubernetes ingress-nginx team
+        image: registry.k8s.io/defaultbackend-amd64:1.5
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            cpu: 10m
+            memory: 20Mi
+          requests:
+            cpu: 10m
+            memory: 20Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: custom-error-pages-svc
+  namespace: default
+spec:
+  selector:
+    app: custom-error-pages
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http

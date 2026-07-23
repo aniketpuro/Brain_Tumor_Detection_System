@@ -31,6 +31,9 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 sudo kubectl apply -f k8s/rbac.yaml
 sudo kubectl apply -f k8s/network-policy.yaml
 
+# Apply Secrets (must be before deployment)
+sudo kubectl apply -f k8s/secret.yaml
+
 # Apply Deployment and Service
 sudo kubectl apply -f k8s/deployment.yaml
 sudo kubectl apply -f k8s/service.yaml

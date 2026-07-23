@@ -35,11 +35,44 @@ spec:
           capabilities:
             drop:
               - ALL
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5001
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5001
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         env:
         - name: PORT
           value: "5001"
+        - name: TF_CPP_MIN_LOG_LEVEL
+          value: "2"
         - name: SECRET_KEY
-          value: "production-secret-key-change-me"
+          valueFrom:
+            secretKeyRef:
+              name: neuroscan-secrets
+              key: SECRET_KEY
+        - name: MISTRAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: neuroscan-secrets
+              key: MISTRAL_API_KEY
         volumeMounts:
         - name: tmp-volume
           mountPath: /tmp

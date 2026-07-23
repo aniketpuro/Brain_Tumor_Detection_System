@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: neuroscan-ingress
+  namespace: default
+  annotations:
+    # 1. Ingress Class
+    kubernetes.io/ingress.class: "nginx"
+
+    # 2. SSL/TLS Termination (Cert-Manager integration)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # 3. Rate Limiting for DDoS protection (Limit to 10 RPS per IP, with a burst of 20)
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    
+    # 4. Security Hardening: IP Allow-list / Filtering (Only allow specific IPs/CIDRs)
+    # Replace with your actual trusted IPs or remove to allow all traffic.
+    # e.g., "192.168.1.0/24, 10.0.0.0/8"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0" 
+
+    # 5. Load Balancing Algorithm (Exponentially Weighted Moving Average - Best for dynamic latency)
+    nginx.ingress.kubernetes.io/load-balance: "ewma"
+
+    # 6. Custom Error Pages (Points to the custom error backend)
+    nginx.ingress.kubernetes.io/custom-http-errors: "401,403,404,500,502,503,504"
+    nginx.ingress.kubernetes.io/default-backend: "custom-error-pages-svc"
+
+    # 7. Basic Security Headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+
+spec:
+  tls:
+  - hosts:
+    - api.neuroscan.local
+    - app.neuroscan.local
+    secretName: neuroscan-tls-secret # Cert-manager will generate this secret
+  rules:
+  - host: api.neuroscan.local
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: neuroscan-backend-svc
+            port:
+              number: 8000
+  - host: app.neuroscan.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: neuroscan-frontend-svc
+            port:
+              number: 80
